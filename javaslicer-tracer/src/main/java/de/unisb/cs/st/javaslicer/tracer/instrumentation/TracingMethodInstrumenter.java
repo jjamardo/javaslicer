@@ -347,7 +347,7 @@ public class TracingMethodInstrumenter implements Opcodes {
                 // ignore
                 break;
             default:
-                throw new RuntimeException("Unknown instruction type " + insnNode.getType()
+		System.out.println("Unknown instruction type " + insnNode.getType()
                         + " (" + insnNode.getClass().getSimpleName()+")");
             }
             oldInstructions.add(insnNode.clone(labelCopies));
