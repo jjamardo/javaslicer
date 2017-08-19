@@ -71,54 +71,69 @@ public class TracingClassInstrumenter implements Opcodes {
         this.readClass.ready();
     }
 
-    protected void transformMethod(final ClassNode classNode, final MethodNode method, final ListIterator<MethodNode> methodIt) {
-        final ReadMethod readMethod = new ReadMethod(this.readClass, method.access,
-                method.name, method.desc, AbstractInstruction.getNextIndex());
-        this.readClass.addMethod(readMethod);
+	protected void transformMethod(final ClassNode classNode, final MethodNode method,
+			final ListIterator<MethodNode> methodIt) {
+		final ReadMethod readMethod = new ReadMethod(this.readClass, method.access, method.name, method.desc,
+				AbstractInstruction.getNextIndex());
+		this.readClass.addMethod(readMethod);
 
-        // do not instrument <clinit> methods (break (linear) control flow)
-        // because these methods may call other methods, we have to pause tracing when they are entered
-        if ("<clinit>".equals(method.name)) {
-            new PauseTracingInstrumenter(null, this.tracer).transformMethod(method, methodIt, this.readClass.getName());
-            return;
-        }
+		// do not instrument <clinit> methods (break (linear) control flow)
+		// because these methods may call other methods, we have to pause tracing when
+		// they are entered
+		if ("<clinit>".equals(method.name)) {
+			new PauseTracingInstrumenter(null, this.tracer).transformMethod(method, methodIt, this.readClass.getName());
+			return;
+		}
 
-        MethodNode oldMethod;
-        // only copy the old method if it has more than 2000 instructions
-        if (method.instructions.size() > 2000) {
-            oldMethod = new MethodNode();
-            copyMethod(method, oldMethod);
-        } else {
-            oldMethod = null;
-        }
+		MethodNode oldMethod;
+		// only copy the old method if it has more than 2000 instructions
+		if (method.instructions.size() > 2000) {
+			oldMethod = new MethodNode();
+			copyMethod(method, oldMethod);
+		} else {
+			oldMethod = null;
+		}
 
-        new TracingMethodInstrumenter(this.tracer, readMethod, classNode, method).transform(methodIt);
+		new TracingMethodInstrumenter(this.tracer, readMethod, classNode, method).transform(methodIt);
 
-        // test the size of the instrumented method
-        final ClassWriter testCW = new ClassWriter(0);
-        method.accept(testCW);
-        final int byteCodeSize = testCW.toByteArray().length;
-        if (byteCodeSize >= 1 << 16) {
-            System.err.format("WARNING: instrumented method \"%s.%s%s\" is larger than 64k bytes. undoing instrumentation.%n",
-                this.readClass.getName(), readMethod.getName(), readMethod.getDesc());
-            if (oldMethod == null) {
-                System.err.println("ERROR: uninstrumented method had less than 2000 instructions, so we cannot roll back the instrumentation...");
-            } else {
-                System.err.format("#instructions old: %d; #instructions new: %d; size new: %d%n",
-                    oldMethod.instructions.size(), method.instructions.size(), byteCodeSize);
-                copyMethod(oldMethod, method);
-            }
-        }
+		// test the size of the instrumented method
+		final ClassWriter testCW = new ClassWriter(0);
+		method.accept(testCW);
+		try {
+			final int byteCodeSize = testCW.toByteArray().length;
+			if (byteCodeSize >= 1 << 16) {
+				revertInstrumentation(method, readMethod, oldMethod);
+			}
+		} catch (RuntimeException e) {
+			if (e.getMessage().equals("Method code too large!")) {
+				System.out.println(e.getMessage());
+				revertInstrumentation(method, readMethod, oldMethod);
+			}
+		}
 
-        // reset the labels
-        final Iterator<?> insnIt = method.instructions.iterator();
-        while (insnIt.hasNext()) {
-            final Object insn = insnIt.next();
-            if (insn instanceof LabelNode)
-                ((LabelNode)insn).resetLabel();
-        }
+		// reset the labels
+		final Iterator<?> insnIt = method.instructions.iterator();
+		while (insnIt.hasNext()) {
+			final Object insn = insnIt.next();
+			if (insn instanceof LabelNode)
+				((LabelNode) insn).resetLabel();
+		}
 
-    }
+	}
+
+	private void revertInstrumentation(final MethodNode method, final ReadMethod readMethod, MethodNode oldMethod) {
+		System.err.format(
+				"WARNING: instrumented method \"%s.%s%s\" is larger than 64k bytes. undoing instrumentation.%n",
+				this.readClass.getName(), readMethod.getName(), readMethod.getDesc());
+		if (oldMethod == null) {
+			System.err.println(
+					"ERROR: uninstrumented method had less than 2000 instructions, so we cannot roll back the instrumentation...");
+		} else {
+			System.err.format("#instructions old: %d; #instructions new: %d\n", oldMethod.instructions.size(),
+					method.instructions.size());
+			copyMethod(oldMethod, method);
+		}
+	}
 
     @SuppressWarnings("unchecked")
     private static void copyMethod(final MethodNode from, final MethodNode to) {
