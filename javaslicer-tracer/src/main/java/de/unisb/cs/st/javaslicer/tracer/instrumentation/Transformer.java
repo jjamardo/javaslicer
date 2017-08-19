@@ -128,6 +128,11 @@ public class Transformer implements ClassFileTransformer {
             tt.pauseTracing();
             paused = true;
 
+            /* In some cases TransformerManager is passing null in className */
+            if (className == null) {
+            	System.out.println("Transformer.transform: className is null");
+            	return null;            	
+            }
             final String javaClassName = Type.getObjectType(className).getClassName();
             if (isExcluded(javaClassName))
                 return null;
